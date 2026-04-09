@@ -20,9 +20,10 @@ class ResumeScorer:
             SCORING:
             - Provide a score from 0 to 100.
             - If a Hard Exclusion is hit, Score = 0.
-            - Otherwise, score based on keywords, tech stack (Python, Linux, React), and experience level.
+            - If Score < 100, you MUST explicitly state what is MISSING or why the candidate isn't a perfect 10/10 (e.g., missing specific years of experience, missing a specific framework, or seniority mismatch).
             
-            Format your output as JSON with keys: "score" (int) and "reasoning" (str)."""),
+            Format your output as JSON with keys: "score" (int) and "reasoning" (str).
+            The "reasoning" should be 1-2 sentences max: [Top Strength]. [Specific Gap/Missing Skill]."""),
             ("user", "REUME:\n{resume_text}\n\nJOB DESCRIPTION:\n{job_description}")
         ])
 
