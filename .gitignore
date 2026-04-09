@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.ipynb_checkpoints
+
+# Playwright / Automation Sessions
+.automation_session/
+playwright_context/
+*.png
+*.jpg
+linkedin_debug.png
+
+# Local Data (Brain / DB)
+brain_data/
+
+# App Data / Cache
+.gemini/
+.chroma/
+*.log
