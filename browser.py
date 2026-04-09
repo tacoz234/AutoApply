@@ -1,5 +1,6 @@
 import asyncio
 import os
+from typing import Optional, List, Any
 from playwright.async_api import async_playwright
 
 class BrowserController:
@@ -82,19 +83,15 @@ class BrowserController:
     async def fill_field(self, element, value: str):
         await element.fill(value)
 
-    async def scrape_linkedin_jobs(self) -> list:
+    async def get_linkedin_job_cards(self) -> list:
         # Navigate to LinkedIn Jobs
         url = "https://www.linkedin.com/jobs/collections/recommended/"
         print(f"Navigating to {url}...")
         await self.navigate(url)
-        await asyncio.sleep(5) # Increase wait time for slower initial loads
+        await asyncio.sleep(5)
         
-        # DEBUG: Take a screenshot to see if we are on login page or if results are present
         await self.screenshot("linkedin_debug.png")
-        print("Debug screenshot saved: linkedin_debug.png")
 
-        jobs = []
-        # Try multiple potential selectors for LinkedIn job cards
         selectors = [".jobs-search-results-list__item", ".job-card-container", ".horizontal-job-card"]
         job_cards = []
         for selector in selectors:
@@ -103,92 +100,110 @@ class BrowserController:
                 print(f"Found {len(job_cards)} jobs using selector: {selector}")
                 break
         
-        if not job_cards:
-            print("No job cards found. Browser might be on login page or search failed.")
-            return []
-        
-        for card in job_cards[:5]:
+        urls = []
+        for card in job_cards[:10]:
             try:
-                # Ensure the card is visible before clicking
-                await card.scroll_into_view_if_needed()
-                await card.click()
-                await asyncio.sleep(3) # Wait for details pane to update
+                # Try to find the link to the job
+                link_el = await card.query_selector("a.job-card-list__title, a.job-card-container__link")
+                if not link_el:
+                    link_el = await card.query_selector("a")
                 
-                # Target the job details container specifically
-                details_pane = await self.page.query_selector(".jobs-search__job-details--container, .jobs-unified-top-card")
-                if not details_pane:
-                    print("Job details pane not found after click.")
-                    continue
+                if link_el:
+                    href = await link_el.get_attribute("href")
+                    if href:
+                        if href.startswith('/'): href = "https://www.linkedin.com" + href
+                        # Clean up URL (remove tracking params)
+                        clean_url = href.split('?')[0]
+                        urls.append(clean_url)
+            except:
+                continue
+                
+        return urls
 
-                # Use pane-specific selectors with multiple fallbacks
-                title_el = await details_pane.query_selector(".jobs-unified-top-card__job-title, .job-details-jobs-unified-top-card__job-title")
-                
-                # Try several common company name selectors
-                company_selectors = [
-                    ".jobs-unified-top-card__company-name",
-                    ".job-details-jobs-unified-top-card__company-name",
-                    ".jobs-unified-top-card__subtitle-grid-item a",
-                    ".jobs-unified-top-card__primary-description a"
-                ]
-                company_el = None
-                for selector in company_selectors:
-                    company_el = await details_pane.query_selector(selector)
-                    if company_el: break
-                
-                desc_el = await details_pane.query_selector(".jobs-description-content__text, #job-details")
-                
-                title = await title_el.inner_text() if title_el else "Unknown Title"
-                company = await company_el.inner_text() if company_el else "Unknown Company"
-                description = await desc_el.inner_text() if desc_el else "No description"
-                
-                # Cleanup company (often contains ' · ' or extra info)
-                company = company.split('·')[0].strip()
-                
-                # Cleanup title (sometimes it contains extra whitespace or 'New' badges)
-                title = title.split('\n')[0].strip()
-                
-                if title == "Unknown Title" or "notification" in title.lower():
-                    # Fallback for different UI versions
-                    fallback_title = await details_pane.query_selector("h2")
-                    if fallback_title:
-                        title = await fallback_title.inner_text()
+    async def scrape_job_card_details(self, job_url: str) -> Optional[dict]:
+        try:
+            print(f"Scraping details for: {job_url}")
+            await self.navigate(job_url)
+            await asyncio.sleep(3)
+            
+            details_pane = await self.page.query_selector(".jobs-search__job-details--container, .jobs-unified-top-card, .job-view-layout")
+            if not details_pane:
+                # Fallback to body if details pane selector changed
+                details_pane = await self.page.query_selector("body")
 
-                jobs.append({
-                    "title": title.strip(),
-                    "company": company.strip(),
-                    "description": description.strip(),
-                    "url": self.page.url,
-                    "platform": "LinkedIn"
-                })
-                print(f"Successfully scraped: {title} at {company}")
-            except Exception as e:
-                print(f"Error scraping a job card: {e}")
-        return jobs
+            title_el = await details_pane.query_selector(".jobs-unified-top-card__job-title, .job-details-jobs-unified-top-card__job-title, h1")
+            
+            company_selectors = [
+                ".jobs-unified-top-card__company-name",
+                ".job-details-jobs-unified-top-card__company-name",
+                ".jobs-unified-top-card__subtitle-grid-item a",
+                ".jobs-unified-top-card__primary-description a"
+            ]
+            company_el = None
+            for selector in company_selectors:
+                company_el = await details_pane.query_selector(selector)
+                if company_el: break
+            
+            desc_el = await details_pane.query_selector(".jobs-description-content__text, #job-details")
+            
+            title = await title_el.inner_text() if title_el else "Unknown Title"
+            company = await company_el.inner_text() if company_el else "Unknown Company"
+            description = await desc_el.inner_text() if desc_el else "No description"
+            
+            company = company.split('·')[0].strip()
+            title = title.split('\n')[0].strip()
+            
+            if title == "Unknown Title" or "notification" in title.lower():
+                fallback_title = await details_pane.query_selector("h2")
+                if fallback_title:
+                    title = await fallback_title.inner_text()
+
+            return {
+                "title": title.strip(),
+                "company": company.strip(),
+                "description": description.strip(),
+                "url": self.page.url,
+                "platform": "LinkedIn"
+            }
+        except Exception as e:
+            print(f"Error scraping a job card: {e}")
+            return None
 
     async def scrape_handshake_jobs(self) -> list:
-        # Handshake discovery URL (might vary based on subdomain, usually 'app.joinhandshake.com')
         await self.navigate("https://app.joinhandshake.com/stu/postings")
         await asyncio.sleep(2)
         
-        jobs = []
-        # Handshake specific selectors (placeholders, would need refinement)
         job_items = await self.page.query_selector_all("[data-hook='search-result-card']")
-        for item in job_items[:5]:
+        urls = []
+        for item in job_items[:10]:
             try:
-                await item.click()
-                await asyncio.sleep(1.5)
-                
-                # These selectors are common for Handshake but can change
-                title = await self.page.inner_text("h1")
-                # Need more specific selectors for handshake
-                jobs.append({
-                    "title": title.strip(),
-                    "platform": "Handshake",
-                    "url": self.page.url
-                })
+                link = await item.query_selector("a")
+                if link:
+                    href = await link.get_attribute("href")
+                    if href:
+                        if href.startswith('/'): href = "https://app.joinhandshake.com" + href
+                        urls.append(href)
             except:
                 pass
-        return jobs
+        return urls
+
+    async def scrape_handshake_job_details(self, job_url: str) -> Optional[dict]:
+        await self.navigate(job_url)
+        await asyncio.sleep(2)
+        try:
+            title = await self.page.inner_text("h1")
+            # Handshake typically has a #job-description or similar
+            desc_el = await self.page.query_selector(".job-description, [data-hook='job-description']")
+            description = await desc_el.inner_text() if desc_el else "No description"
+            
+            return {
+                "title": title.strip(),
+                "description": description.strip(),
+                "platform": "Handshake",
+                "url": job_url
+            }
+        except:
+            return None
 
     async def click_apply(self) -> str:
         # Look for any Apply button (Easy Apply or external Apply)

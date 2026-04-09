@@ -1,4 +1,5 @@
 import PyPDF2
+import re
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from typing import Dict, Any
@@ -45,7 +46,6 @@ class ResumeScorer:
             return {"score": 0, "reasoning": "Failed to extract text from resume PDF."}
             
         # Clean up the resume text (remove excessive spacing observed in previous run)
-        import re
         resume_text = re.sub(r'\s+', ' ', resume_text).strip()
 
         chain = self.prompt | self.llm

@@ -1,9 +1,10 @@
 import chainlit as cl
+import asyncio
+import re
 from brain import Brain
 from scorer import ResumeScorer
 from browser import BrowserController
 from graph import DiscoveryAgentGraph, DiscoveryState
-import asyncio
 
 # Initialize components
 brain = Brain()
@@ -16,26 +17,32 @@ async def start():
     cl.user_session.set("brain", brain)
     cl.user_session.set("browser", browser)
     
-    await cl.Message(content="Welcome to AutoApply Discovery! Starting auto-scan on **LinkedIn**...").send()
+    await cl.Message(content="Welcome to AutoApply Discovery! Starting auto-scan on **LinkedIn**... (Threshold: 80)").send()
     
     # Trigger auto-discovery
     await run_discovery(["LinkedIn"])
 
 @cl.on_message
 async def main(message: cl.Message):
-    # Determine which platforms to scan
+    # Determine platform and optional threshold
     msg_lower = message.content.lower()
     platforms = []
     if "linkedin" in msg_lower: platforms.append("LinkedIn")
     if "handshake" in msg_lower: platforms.append("Handshake")
     
+    # Try to find a number in the message for the threshold
+    threshold = 80
+    scores = re.findall(r'\b\d{2,3}\b', msg_lower)
+    if scores:
+        threshold = int(scores[0])
+    
     if not platforms: 
-        await cl.Message(content="Please specify a platform like 'LinkedIn' or 'Handshake'.").send()
+        await cl.Message(content="Please specify a platform like 'LinkedIn' or 'Handshake'. You can also set a threshold like 'LinkedIn 85'.").send()
         return
 
-    await run_discovery(platforms)
+    await run_discovery(platforms, threshold)
 
-async def run_discovery(platforms: list):
+async def run_discovery(platforms: list, threshold: int = 80):
     resume_path = "2-6-2026%20-%20Cole_Determan_Resume.pdf.pdf"
     
     # Initialize Discovery Graph
@@ -43,10 +50,11 @@ async def run_discovery(platforms: list):
     
     initial_state = {
         "platforms": platforms,
-        "jobs_to_score": [],
+        "jobs_to_process": [],
         "scored_jobs": [],
         "current_job": None,
         "resume_path": resume_path,
+        "threshold": threshold,
         "logs": [],
         "current_question": None,
         "user_answer": None

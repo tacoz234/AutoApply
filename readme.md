@@ -3,6 +3,8 @@
 A powerful, human-in-the-loop job application agent built with LangGraph, Chainlit, and Gemma 4.
 
 ## Features
+- **Sequential Processing**: Processes one job at a time (Scrape -> Score -> Apply if match) to maximize efficiency and focus.
+- **Configurable Threshold**: Set a minimum match score (e.g., "LinkedIn 85") to only apply to high-quality matches.
 - **HITL Architecture**: Pauses and asks you for answers to unknown fields.
 - **Memory System**: Hierarchical memory using ChromaDB (Long-term) and JSON (Adaptive/Learned).
 - **Resume Scorer**: LLM-as-a-Judge using Gemma 4 to score jobs before applying.

@@ -8,10 +8,11 @@ import asyncio
 
 class DiscoveryState(TypedDict):
     platforms: List[str]
-    jobs_to_score: List[Dict[str, Any]]
+    jobs_to_process: List[Any] # Handles to job cards or URLs
     scored_jobs: List[Dict[str, Any]]
     current_job: Optional[Dict[str, Any]]
     resume_path: str
+    threshold: int
     logs: List[str]
     # HITL fields
     current_question: Optional[str]
@@ -67,54 +68,71 @@ class DiscoveryAgentGraph:
         self.app = self.workflow.compile()
 
     def check_jobs_remaining(self, state: DiscoveryState) -> str:
-        if state["jobs_to_score"]:
+        if state["jobs_to_process"]:
             return "continue"
         return "end"
 
     def check_apply_condition(self, state: DiscoveryState) -> str:
         if state.get("current_job"):
             return "apply"
-        if state["jobs_to_score"]:
+        if state["jobs_to_process"]:
             return "next"
         return "end"
 
     def check_form_condition(self, state: DiscoveryState) -> str:
         if state.get("current_question"):
             return "more"
-        if state["jobs_to_score"]:
+        if state["jobs_to_process"]:
             return "next_job"
         return "end"
 
     async def discover_jobs_node(self, state: DiscoveryState) -> DiscoveryState:
-        all_jobs = []
+        all_jobs_to_process = []
         for platform in state["platforms"]:
-            state["logs"].append(f"🔍 Searching {platform}...")
+            state["logs"].append(f"🔍 Finding jobs on {platform}...")
             if platform.lower() == "linkedin":
-                found = await self.browser.scrape_linkedin_jobs()
-                all_jobs.extend(found)
+                urls = await self.browser.get_linkedin_job_cards()
+                all_jobs_to_process.extend([{"url": u, "platform": "LinkedIn"} for u in urls])
+            elif platform.lower() == "handshake":
+                urls = await self.browser.scrape_handshake_jobs()
+                all_jobs_to_process.extend([{"url": u, "platform": "Handshake"} for u in urls])
         
-        state["jobs_to_score"] = all_jobs
-        state["logs"].append(f"Discovered {len(all_jobs)} jobs. Analysis start...")
+        state["jobs_to_process"] = all_jobs_to_process
+        state["logs"].append(f"Discovered {len(all_jobs_to_process)} potential matches. Processing one by one...")
         return state
 
     async def score_single_job_node(self, state: DiscoveryState) -> DiscoveryState:
-        if not state["jobs_to_score"]: return state
-        job = state["jobs_to_score"].pop(0)
+        if not state["jobs_to_process"]: return state
+        job_info = state["jobs_to_process"].pop(0)
+        url = job_info["url"]
+        platform = job_info["platform"]
         
+        # Scrape details for THIS job only
+        if platform == "LinkedIn":
+            job = await self.browser.scrape_job_card_details(url)
+        else:
+            job = await self.browser.scrape_handshake_job_details(url)
+            
+        if not job:
+            state["logs"].append(f"⚠️ Could not scrape details for {url}, skipping...")
+            return state
+
         result = await self.scorer.score_resume(state["resume_path"], job.get("description", ""))
         job["score"] = result.get("score", 0)
         job["reasoning"] = result.get("reasoning", "N/A")
         state["scored_jobs"].append(job)
         
-        # Clean up reasoning to 2 sentences max
         reasoning = job.get("reasoning", "N/A").split('.')[:2]
         reason_text = ".".join(reasoning).strip() + "."
         
-        state["logs"].append(f"✅ Scored: **{job['title']}** at **{job.get('company')}** → Score: **{job['score']}**\n> {reason_text}")
+        state["logs"].append(f"⏱️ Scored: **{job['title']}** at **{job.get('company')}** → Score: **{job['score']}**\n> {reason_text}")
         
-        # If it's a high score, set as current_job to trigger apply flow
-        if job["score"] >= 90:
+        # Decide whether to apply based on threshold
+        if job["score"] >= state.get("threshold", 80):
+            state["logs"].append(f"🌟 High score! Score {job['score']} >= {state.get('threshold', 80)}")
             state["current_job"] = job
+        else:
+            state["current_job"] = None
 
         return state
 
