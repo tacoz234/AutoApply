@@ -61,15 +61,20 @@ async def run_discovery(platforms: list, threshold: int = 80):
     }
     
     final_output = None
+    last_log_index = 0
     # Run graph
     async for output in discovery_graph.app.astream(initial_state):
         node_name = list(output.keys())[0]
         curr_state = output[node_name]
         final_output = curr_state
         
-        # Stream the latest logs
-        if curr_state["logs"]:
-            await cl.Message(content=curr_state["logs"][-1]).send()
+        # Stream ALL new logs since last update
+        if curr_state["logs"] and len(curr_state["logs"]) > last_log_index:
+            new_logs = curr_state["logs"][last_log_index:]
+            for log in new_logs:
+                await cl.Message(content=log).send()
+                await asyncio.sleep(1.2) # Add pacing so the user can read the steps
+            last_log_index = len(curr_state["logs"])
 
         # Handle HITL Question
         if curr_state.get("current_question"):
