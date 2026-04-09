@@ -13,19 +13,35 @@ class BrowserController:
         self.page = None
 
     async def start(self):
+        # Force kill any hanging chrome processes that might be locking the folder
+        try:
+            os.system('taskkill /F /IM chrome.exe /T /FI "CPUTIME gt 00:00:00" >nul 2>&1')
+        except:
+            pass
+
         self.playwright = await async_playwright().start()
-        # Persistent context to keep user logged in
-        # Added slow_mo and stability flags for Windows
-        self.context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=self.user_data_dir,
-            headless=False,
-            slow_mo=500,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage"
-            ]
-        )
+        
+        # Try to launch. If locked, wait and try one more time.
+        for attempt in range(2):
+            try:
+                self.context = await self.playwright.chromium.launch_persistent_context(
+                    user_data_dir=self.user_data_dir,
+                    headless=False,
+                    slow_mo=500,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage"
+                    ]
+                )
+                break
+            except Exception as e:
+                if attempt == 0:
+                    print(f"Browser lock detected, retrying... ({e})")
+                    await asyncio.sleep(2)
+                else:
+                    raise e
+        
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
 
     async def stop(self):

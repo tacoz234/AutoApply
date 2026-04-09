@@ -43,11 +43,13 @@ async def run_discovery(platforms: list):
     
     initial_state = {
         "platforms": platforms,
-        "current_platform": None,
         "jobs_to_score": [],
         "scored_jobs": [],
+        "current_job": None,
         "resume_path": resume_path,
-        "logs": []
+        "logs": [],
+        "current_question": None,
+        "user_answer": None
     }
     
     final_output = None

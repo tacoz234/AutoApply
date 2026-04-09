@@ -72,9 +72,7 @@ class DiscoveryAgentGraph:
         return "end"
 
     def check_apply_condition(self, state: DiscoveryState) -> str:
-        last_job = state["scored_jobs"][-1] if state["scored_jobs"] else None
-        if last_job and last_job["score"] >= 90: # Only auto-apply to very high scores
-            state["current_job"] = last_job
+        if state.get("current_job"):
             return "apply"
         if state["jobs_to_score"]:
             return "next"
@@ -107,8 +105,12 @@ class DiscoveryAgentGraph:
         job["score"] = result.get("score", 0)
         job["reasoning"] = result.get("reasoning", "N/A")
         state["scored_jobs"].append(job)
-        
         state["logs"].append(f"✅ Scored: **{job['title']}** → Score: **{job['score']}**")
+        
+        # If it's a high score, set as current_job to trigger apply flow
+        if job["score"] >= 90:
+            state["current_job"] = job
+
         return state
 
     async def apply_to_job_node(self, state: DiscoveryState) -> DiscoveryState:
