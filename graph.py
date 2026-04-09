@@ -105,7 +105,12 @@ class DiscoveryAgentGraph:
         job["score"] = result.get("score", 0)
         job["reasoning"] = result.get("reasoning", "N/A")
         state["scored_jobs"].append(job)
-        state["logs"].append(f"✅ Scored: **{job['title']}** → Score: **{job['score']}**")
+        
+        # Clean up reasoning to 2 sentences max
+        reasoning = job.get("reasoning", "N/A").split('.')[:2]
+        reason_text = ".".join(reasoning).strip() + "."
+        
+        state["logs"].append(f"✅ Scored: **{job['title']}** at **{job.get('company')}** → Score: **{job['score']}**\n> {reason_text}")
         
         # If it's a high score, set as current_job to trigger apply flow
         if job["score"] >= 90:
