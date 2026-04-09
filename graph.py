@@ -115,12 +115,19 @@ class DiscoveryAgentGraph:
 
     async def apply_to_job_node(self, state: DiscoveryState) -> DiscoveryState:
         job = state["current_job"]
-        state["logs"].append(f"🚀 **Auto-Applying** to {job['title']} at {job['company']}...")
+        state["logs"].append(f"🚀 **Starting Application** for {job['title']}...")
         await self.browser.navigate(job["url"])
-        success = await self.browser.click_easy_apply()
-        if not success:
-            state["logs"].append("❌ Easy Apply not found for this job.")
-            state["current_question"] = None
+        
+        apply_type = await self.browser.click_apply()
+        if apply_type == "None":
+            state["logs"].append("❌ No Apply button found.")
+            state["current_job"] = None
+        elif apply_type == "External Apply":
+            state["logs"].append(f"🔗 Redirected to external site: {self.browser.page.url}")
+            state["logs"].append("Attempting to detect fields on company site...")
+        else:
+            state["logs"].append("📝 Found LinkedIn Easy Apply form.")
+            
         return state
 
     async def handle_form_node(self, state: DiscoveryState) -> DiscoveryState:

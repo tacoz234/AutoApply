@@ -190,34 +190,64 @@ class BrowserController:
                 pass
         return jobs
 
-    async def click_easy_apply(self) -> bool:
-        # Look for Easy Apply button
-        buttons = await self.page.query_selector_all("button")
+    async def click_apply(self) -> str:
+        # Look for any Apply button (Easy Apply or external Apply)
+        buttons = await self.page.query_selector_all("button, a.jobs-apply-button")
         for btn in buttons:
             text = await btn.inner_text()
-            if "Easy Apply" in text:
+            if "Apply" in text:
                 await btn.click()
-                await asyncio.sleep(2)
-                return True
-        return False
+                await asyncio.sleep(4) # More time for external redirects
+                return "Easy Apply" if "Easy" in text else "External Apply"
+        return "None"
 
     async def get_form_questions(self) -> list:
-        # Find all questions in the current modal/page
+        # Check if we are on LinkedIn or an external site
+        is_linkedin = "linkedin.com" in self.page.url
+        
+        container = None
+        if is_linkedin:
+            container = await self.page.query_selector(".jobs-easy-apply-modal, .artdeco-modal, .jobs-search-two-pane__details")
+        
+        # If external or no modal found, use the whole body
+        if not container:
+            container = await self.page.query_selector("body")
+
         questions = []
-        # Look for text that looks like a question or label
-        labels = await self.page.query_selector_all("label, .fb-dash-form-element__label, .t-14")
+        # Search for common question patterns: labels, spans, or direct text near inputs
+        labels = await container.query_selector_all("label, .fb-dash-form-element__label, p, span")
+        
+        # Limit the number of elements to scan for performance
+        labels = labels[:100]
+        
+        blacklist = ["search", "filter", "sign in", "post a job", "policy", "terms", "cookies"]
+        
         for label in labels:
-            text = await label.inner_text()
-            if text.strip() and len(text.strip()) > 2:
-                # Find the associated input
-                parent = await label.query_selector("xpath=..")
-                input_el = await parent.query_selector("input, select, textarea")
-                if input_el:
-                    questions.append({
-                        "id": await input_el.get_attribute("id") or text[:20],
-                        "text": text.strip(),
-                        "element": input_el
-                    })
+            try:
+                text = (await label.inner_text()).strip()
+                if not text or len(text) < 3 or len(text) > 200: continue
+                if any(word in text.lower() for word in blacklist): continue
+                if text.endswith(":") or "?" in text or "name" in text.lower() or "email" in text.lower():
+                    # Find associated input
+                    parent = await label.query_selector("xpath=..")
+                    # Try parent or parent of parent
+                    input_el = await parent.query_selector("input, select, textarea")
+                    if not input_el:
+                        grandparent = await parent.query_selector("xpath=..")
+                        input_el = await grandparent.query_selector("input, select, textarea")
+
+                    if input_el:
+                        q_id = await input_el.get_attribute("id") or await input_el.get_attribute("name") or text[:20]
+                        # Don't add duplicate inputs
+                        if any(q["id"] == q_id for q in questions): continue
+                        
+                        questions.append({
+                            "id": q_id,
+                            "text": text,
+                            "element": input_el
+                        })
+            except:
+                continue
         return questions
 
     async def submit_application_step(self):
